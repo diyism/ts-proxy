@@ -3,18 +3,23 @@
 
 # Usage
 ```
-$ ts-proxy -h
-Usage of ts-proxy:
+Usage of ./ts-proxy:
   -debug
         enable debug mode
+  -ephemeral
+        use ephemeral node
   -fwd-socks value
         Forward SOCKS: 'bind_addr=tailscale_addr'
   -hostname string
         Tailscale device hostname (default "ts-proxy")
   -serve-socks value
         Serve SOCKS: 'tailscale_addr[,outaddr_config...]'
+  -tags string
+        comma-separated tags
+  -tailnet-socks value
+        Serve Tailnet SOCKS: 'bind_addr'
   -tcp value
-        TCP forward rule: 'bind_addr=[TLS=]connect_addr'
+        TCP forward rule: 'bind_addr=connect_addr'
   -tcp-timeout int
         TCP timeout in seconds (default 1100)
   -tsnet-dir string
@@ -49,18 +54,25 @@ Each `outaddr_config` must follow the `scope=ip` syntax, where `scope` is one of
 Either `udp4` or `udp6` can be set to `disabled` to avoid potential performance issues with `delayed46UDPConn`.
 
 ## SOCKS5 forwarding (`-fwd-socks`)
-Starts a SOCKS5 proxy locally on `bind_addr` that forwards traffic to an upstream SOCKS5 proxy specified by `tailscale_addr`.
-`bind_addr` must be a local address, and `tailscale_addr` must be a Tailscale address.
+Starts a SOCKS5 proxy on `bind_addr` that forwards traffic to an upstream SOCKS5 proxy specified by `tailscale_addr`.
+`bind_addr` has the same syntax as in `-tcp` and `-udp`. `tailscale_addr` must be a Tailscale address.
+
+## SOCKS5 onto Tailnet (`-tailnet-socks`)
+Starts a SOCKS5 proxy on `bind_addr` that forwards traffic to Tailnet. `bind_addr` has the same syntax as in `-tcp` and `-udp`.
+
+## Environment variables
+tsnet (which is used in ts-proxy) accepts some environment variables relating auth key, oauth client, etc. See tsnet documentation for detail.
 
 ## Example
-`ts-proxy -hostname pc1 -serve-socks :1080,tcp4=10.0.0.1 -tcp pc1.tshost:1234=127.0.0.1:5678 -usp :1234=pc2.tshost:5678`
+`ts-proxy -hostname pc1 -serve-socks :1080,tcp4=10.0.0.1 -tcp pc1.tshost:1234=127.0.0.1:5678 -udp :1234=pc2.tshost:5678`
 
 # How it works
-`tsnet` handles all Tailscale connectivity. https://github.com/txthinking/socks5 is used for the SOCKS5 server/client with minor customizations.
+tsnet handles all Tailscale connectivity. https://github.com/txthinking/socks5 with minor customizations is used for the SOCKS5 server/client.
 
 ## Fix for Android (Termux)
 Due to https://github.com/golang/go/issues/40569, `net.Interface()` and `net.InterfaceAddrs()` do not work correctly on newer Android versions. This tool uses https://github.com/wlynxg/anet to resolve this issue. In Android, `anet` has to be run/built with `-ldflags "-checklinkname=0"` to avoid this error: `link: github.com/wlynxg/anet: invalid reference to net.zoneCache`.
-Additionally, a small patch is applied to enable TLS certificate requests, which are currently disabled in the Tailscale library. This can also be set up by go.work (this is useful when ts-proxy is used as library).
+
+Additionally, a small patch is applied to enable TLS certificate requests, which are currently disabled in the Tailscale library. This can also be set up by go.work (this is useful when ts-proxy is used as a library).
 
 # TODO
 - HTTP Proxy support

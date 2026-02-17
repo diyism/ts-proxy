@@ -27,11 +27,15 @@ func isTailscaleAddr(addr string) bool {
 	return tsIPv4Block.Contains(ip) || tsIPv6Block.Contains(ip)
 }
 
+func tsDial(network, addr string) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return tsServer.Dial(ctx, network, addr)
+}
+
 func dialAny(network, addr string) (net.Conn, error) {
 	if isTailscaleAddr(addr) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return tsServer.Dial(ctx, network, addr)
+		return tsDial(network, addr)
 	}
 	return net.Dial(network, addr)
 }

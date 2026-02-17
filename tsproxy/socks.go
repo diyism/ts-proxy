@@ -1,7 +1,6 @@
 package tsproxy
 
 import (
-	"context"
 	"errors"
 	"net"
 	"time"
@@ -17,8 +16,8 @@ func ServeSOCKS(bind, tcp4, tcp6, udp4, udp6 string) {
 	server.ListenTCP = func(network string, laddr string) (net.Listener, error) {
 		return tsServer.Listen(network, laddr)
 	}
-	server.ListenUDP = func(network, address string) (net.PacketConn, error) {
-		pk, e := tsServer.ListenPacket(network, address)
+	server.ListenUDP = func(network, laddr string) (net.PacketConn, error) {
+		pk, e := tsServer.ListenPacket(network, laddr)
 		return pk, e
 	}
 	server.BindOutUDP = func(network string, laddr string) (net.PacketConn, error) {
@@ -71,28 +70,34 @@ func ServeSOCKS(bind, tcp4, tcp6, udp4, udp6 string) {
 func ForwardSOCKS(bind, connect string) {
 	bind = resolveTSAddr(bind)
 	connect = resolveTSAddr(connect)
-	h, p, _ := net.SplitHostPort(bind)
+	h, _, _ := net.SplitHostPort(bind)
 	if h == "" {
 		h = "0.0.0.0" //This seems to work in IPv6. Empty string won't work due to socks5's UDP() implementation
 	}
-	server, _ := socks5.NewClassicServer(h+":"+p, h, "", "", tcpTimeout, udpTimeout) //socks5 lib accepts IP in both of the first two arguments...?
+	server, _ := socks5.NewClassicServer(bind, h, "", "", tcpTimeout, udpTimeout) //socks5 lib accepts IP in both of the first two arguments...?
 	client, _ := socks5.NewClient(connect, "", "", tcpTimeout, udpTimeout)
+	server.ListenTCP = func(_ string, laddr string) (net.Listener, error) {
+		return listenTCP(laddr)
+	}
+	server.ListenUDP = func(network, laddr string) (net.PacketConn, error) {
+		return listenUDP(laddr)
+	}
 	client.DialTCP = func(network string, laddr, raddr string) (net.Conn, error) {
 		println(laddr, raddr)
 		a, err := net.ResolveTCPAddr(network, raddr)
 		if err != nil {
 			return nil, err
 		}
-		return tsServer.Dial(context.Background(), network, a.String())
+		return tsDial(network, a.String())
 	}
-	server.DialTCP = func(network string, laddr, raddr string) (net.Conn, error) {
+	server.DialTCP = func(network string, _, raddr string) (net.Conn, error) {
 		a, err := net.ResolveTCPAddr(network, raddr)
 		if err != nil {
 			return nil, err
 		}
 		return client.Dial(network, a.String())
 	}
-	server.BindOutUDP = func(network string, laa string) (net.PacketConn, error) {
+	server.BindOutUDP = func(network string, _ string) (net.PacketConn, error) {
 		if err := client.Negotiate(nil); err != nil {
 			return nil, err
 		}
@@ -101,9 +106,31 @@ func ForwardSOCKS(bind, connect string) {
 		if err != nil {
 			return nil, err
 		}
-		c, err := tsServer.Dial(context.Background(), "udp", rp.Address())
+		c, err := tsDial("udp", rp.Address())
 		uc := proxyUDPConn{UDPConn: c}
 		return uc, err
+	}
+	server.ListenAndServe(nil)
+}
+
+func TailnetSOCKS(bind string) {
+	bind = resolveTSAddr(bind)
+	h, _, _ := net.SplitHostPort(bind)
+	if h == "" {
+		h = "0.0.0.0" //This seems to work in IPv6. Empty string won't work due to socks5's UDP() implementation
+	}
+	server, _ := socks5.NewClassicServer(bind, h, "", "", tcpTimeout, udpTimeout) //socks5 lib accepts IP in both of the first two arguments...?
+	server.ListenTCP = func(_ string, laddr string) (net.Listener, error) {
+		return listenTCP(laddr)
+	}
+	server.ListenUDP = func(network, laddr string) (net.PacketConn, error) {
+		return listenUDP(laddr)
+	}
+	server.DialTCP = func(network string, _, raddr string) (net.Conn, error) {
+		return tsDial(network, raddr)
+	}
+	server.BindOutUDP = func(network string, laddr string) (net.PacketConn, error) {
+		return tsServer.ListenPacket(network, laddr)
 	}
 	server.ListenAndServe(nil)
 }
