@@ -68,9 +68,12 @@ func main() {
 		flag.Usage()
 		os.Exit(0)
 	}
-
+	tagsArray := strings.Split(tags, ",")
+	if tags == "" {
+		tagsArray = nil
+	}
 	tsServer = &tsnet.Server{
-		AdvertiseTags: strings.Split(tags, ","),
+		AdvertiseTags: tagsArray,
 		Hostname:      hostname,
 		Dir:           tsdir,
 		Ephemeral:     ephemeral,
