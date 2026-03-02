@@ -10,19 +10,6 @@ import (
 	"tailscale.com/tsnet"
 )
 
-// 転送ルールを保持する構造体
-type forwardRule struct {
-	Bind    string
-	Connect string
-}
-
-type socksServeRule struct {
-	Bind string
-	Out4 string
-	Out6 string
-}
-
-// flagパッケージ用のカスタム型定義
 type stringList []string
 
 func (s *stringList) String() string {
