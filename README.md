@@ -13,11 +13,13 @@ Usage of ./ts-proxy:
   -hostname string
         Tailscale device hostname (default "ts-proxy")
   -serve-socks value
-        Serve SOCKS: 'tailscale_addr[,outaddr_config...]'
+        Serve SOCKS: 'bind_addr[,outaddr_config...]'
   -tags string
         comma-separated tags
   -tailnet-socks value
         Serve Tailnet SOCKS: 'bind_addr'
+  -dual-socks value
+        Combination of "Tailnet SOCKS" and "Serve SOCKS"
   -tcp value
         TCP forward rule: 'bind_addr=connect_addr'
   -tcp-timeout int
@@ -33,6 +35,7 @@ Usage of ./ts-proxy:
 ## General
 `bind_addr`, `connect_addr`, and `tailscale_addr` share basically the same syntax: `host:port`.
 If a host string ends with `.tshost`, it will be replaced by the corresponding IP(v4) address using Tailscale DNS.
+`.tshost` can be a shorthand for `[hostname].tshost`.
 SOCKS and forward options can be specified multiple times.
 
 `-tcp-timeout` sets the TCP timeout in SOCKS5. `-udp-timeout` sets the UDP timeout for both UDP port forwarding and SOCKS5 UDP Associate.
@@ -47,18 +50,22 @@ For TCP forwarding, using `=TLS=` instead of `=` enables TLS termination. In thi
  You must enable HTTPS in the Tailscale Admin Console for this to work.
 
 ## SOCKS5 serving (`-serve-socks`)
-Exposes a SOCKS5 proxy to the tailnet. A port-only specification (`:port`) is supported (IPv4), but specific Tailscale addresses (IPv4 or IPv6) can also be used.
-`tailscale_port` can be followed by a comma-separated list of `outaddr_config` entries, which specify outgoing addresses for the SOCKS5 proxy.
+Serves a SOCKS5 proxy. `bind_addr` can be followed by a comma-separated list of `outaddr_config` entries, which specify outgoing addresses for the SOCKS5 proxy.
 
 Each `outaddr_config` must follow the `scope=ip` syntax, where `scope` is one of: `tcp4`, `tcp6`, `udp4`, `udp6`, `ip4` (sets both `tcp4` and `udp4`), or `ip6` (sets both `tcp6` and `udp6`).
-Either `udp4` or `udp6` can be set to `disabled` to avoid potential performance issues with `delayed46UDPConn`.
+Either `udp4` or `udp6` can be set to `disabled` to avoid potential performance issues with `delayedUDPConn`.
 
 ## SOCKS5 forwarding (`-fwd-socks`)
-Starts a SOCKS5 proxy on `bind_addr` that forwards traffic to an upstream SOCKS5 proxy specified by `tailscale_addr`.
+Serves a SOCKS5 proxy on `bind_addr` that forwards traffic to an upstream SOCKS5 proxy specified by `tailscale_addr`.
 `bind_addr` has the same syntax as in `-tcp` and `-udp`. `tailscale_addr` must be a Tailscale address.
 
-## SOCKS5 onto Tailnet (`-tailnet-socks`)
-Starts a SOCKS5 proxy on `bind_addr` that forwards traffic to Tailnet. `bind_addr` has the same syntax as in `-tcp` and `-udp`.
+## SOCKS5 via Tailnet (`-tailnet-socks`)
+Serves a SOCKS5 proxy on `bind_addr` that forwards traffic to Tailnet. `bind_addr` has the same syntax as in `-tcp` and `-udp`. Traffic whose destination is not Tailscale address is routed via local network.
+
+## "Dual" SOCKS5 (`-dual-socks`)
+A combination of `-serve-socks` and `-tailnet-socks`. Similar to `-tailnet-socks`, but accepts outgoing address configuration.
+
+In UDP, `delayedUDPConn` is always used and `disabled` is not allowed in `udp4` or `udp6`.
 
 ## Environment variables
 tsnet (which is used in ts-proxy) accepts some environment variables relating auth key, oauth client, etc. See tsnet documentation for detail.

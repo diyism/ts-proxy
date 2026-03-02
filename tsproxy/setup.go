@@ -5,29 +5,43 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/ge9/socks5"
 	"github.com/wlynxg/anet"
 	"tailscale.com/net/netmon"
+	"tailscale.com/net/tsaddr"
 	"tailscale.com/tsnet"
 )
 
-var tcpTimeout, udpTimeout = 1100, 330
-var tsServer *tsnet.Server
-var debug = false
+// var tcpTimeout, udpTimeout = 1100, 330
+// var tsServer *tsnet.Server
+// var debug = false
+type TsProxy struct {
+	tsServer   *tsnet.Server
+	tcpTimeout int
+	udpTimeout int
+	debug      bool
+}
 
-func Setup(tsServer0 *tsnet.Server, tcpTimeout0, udpTimeout0 int, debug0 bool) {
-	tcpTimeout = tcpTimeout0
-	udpTimeout = udpTimeout0
-	tsServer = tsServer0
-	debug = debug0
+func NewTsProxy(tsServer0 *tsnet.Server, tcpTimeout0, udpTimeout0 int, debug0 bool) *TsProxy {
+	t := &TsProxy{
+		tcpTimeout: tcpTimeout0,
+		udpTimeout: udpTimeout0,
+		tsServer:   tsServer0,
+		debug:      debug0,
+	}
+	//NOTE: Unfortunately, socks5.Debug can only be set globally
 	socks5.Debug = debug0
 	anetPatch()
-	if _, err := tsServer.Up(context.Background()); err != nil {
+	if _, err := t.tsServer.Up(context.Background()); err != nil {
 		log.Fatalf("Failed to start tsnet: %v", err)
 	}
+	return t
 }
+
 func anetPatch() {
 	// A minimal patch for Android
 	// https://github.com/wlynxg/anet
@@ -52,13 +66,110 @@ func anetPatch() {
 	})
 }
 
-// if addr is Tailscale address, resolve it. An IPv4 address is returned.
-func resolveTSAddr(addr string) string {
+// if addr is "*.tshost", resolve it. An IPv4 address is returned.
+func resolveTshost(tsServer *tsnet.Server, hostname string, addr string) string {
 	host, port, _ := net.SplitHostPort(addr)
 	if strings.HasSuffix(host, ".tshost") {
-		c, _ := tsServer.Dial(context.Background(), "udp", host[:len(host)-7]+":53") //we can use any port
-		tshost, _, _ := net.SplitHostPort(c.RemoteAddr().String())
-		return net.JoinHostPort(tshost, port)
+		host = host[:len(host)-7]
+		if host == "" {
+			host = hostname
+		}
+		return net.JoinHostPort(resolveTailscaleIPv4(tsServer, host).String(), port)
 	}
 	return addr
+}
+
+func resolveTailscaleIPv4(s *tsnet.Server, hostname string) netip.Addr {
+	lc, _ := s.LocalClient()
+	status, _ := lc.Status(context.Background())
+	for _, peer := range status.Peer {
+		if strings.EqualFold(peer.HostName, hostname) {
+			return firstIPv4(peer.TailscaleIPs)
+		}
+	}
+	if strings.EqualFold(status.Self.HostName, hostname) {
+		return firstIPv4(status.Self.TailscaleIPs)
+	}
+	panic("couldn't resolve tailscale host: " + hostname)
+}
+
+func firstIPv4(ips []netip.Addr) netip.Addr {
+	for _, ip := range ips {
+		if ip.Is4() {
+			return ip
+		}
+	}
+	return netip.Addr{}
+}
+
+func isTailscaleHost(s *tsnet.Server, hostname string) bool {
+	lc, _ := s.LocalClient()
+	status, _ := lc.Status(context.Background())
+	for _, peer := range status.Peer {
+		if strings.EqualFold(peer.HostName, hostname) || strings.HasPrefix(peer.DNSName, hostname+".") {
+			return true
+		}
+	}
+	if strings.EqualFold(status.Self.HostName, hostname) || strings.HasPrefix(status.Self.DNSName, hostname+".") {
+		return true
+	}
+	return false
+}
+
+func isTailscaleIPPortString(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	return isTailscaleIPString(host)
+}
+
+func isTailscaleIPString(host string) bool {
+	ip, e := netip.ParseAddr(host)
+	if e != nil {
+		return false
+	}
+	return tsaddr.IsTailscaleIP(ip)
+}
+
+func isTailscaleIPv4String(host string) bool {
+	ip, e := netip.ParseAddr(host)
+	if e != nil {
+		return false
+	}
+	return tsaddr.IsTailscaleIPv4(ip)
+}
+
+func isTailscaleIPv6String(host string) bool {
+	ip, e := netip.ParseAddr(host)
+	if e != nil {
+		return false
+	}
+	return tsaddr.TailscaleULARange().Contains(ip)
+}
+func tsDial(tsServer *tsnet.Server, network, addr string) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return tsServer.Dial(ctx, network, addr)
+}
+
+func dialAny(tsServer *tsnet.Server, network, addr string) (net.Conn, error) {
+	if isTailscaleIPPortString(addr) {
+		return tsDial(tsServer, network, addr)
+	}
+	return net.Dial(network, addr)
+}
+
+func listenTCP(tsServer *tsnet.Server, addr string) (net.Listener, error) {
+	if isTailscaleIPPortString(addr) {
+		return tsServer.Listen("tcp", addr)
+	}
+	return net.Listen("tcp", addr)
+}
+
+func listenUDP(tsServer *tsnet.Server, addr string) (net.PacketConn, error) {
+	if isTailscaleIPPortString(addr) {
+		return tsServer.ListenPacket("udp", addr)
+	}
+	return net.ListenPacket("udp", addr)
 }

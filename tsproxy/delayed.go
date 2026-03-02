@@ -2,8 +2,6 @@ package tsproxy
 
 import (
 	"errors"
-	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -16,25 +14,17 @@ import (
 
 var ErrNotInitialized = errors.New("connection not initialized yet")
 
-type delayed46UDPConn struct {
+type delayedUDPConn struct {
 	mu   sync.RWMutex
 	conn net.PacketConn
 	// bind address
-	out4 string
-	out6 string
+	connOpener func(dstAddr net.Addr) (net.PacketConn, error)
 	// deadlines are also delayed
 	readDeadline  time.Time
 	writeDeadline time.Time
 }
 
-func Newdelayed46UDPConn(out4, out6 string) net.PacketConn {
-	return &delayed46UDPConn{
-		out4: out4,
-		out6: out6,
-	}
-}
-
-func (d *delayed46UDPConn) initConn(dstAddr net.Addr) error {
+func (d *delayedUDPConn) initConn(dstAddr net.Addr) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -42,26 +32,7 @@ func (d *delayed46UDPConn) initConn(dstAddr net.Addr) error {
 		return nil // already initialized (for some race condition maybe)
 	}
 
-	udpAddr, ok := dstAddr.(*net.UDPAddr)
-	if !ok {
-		return fmt.Errorf("invalid address type: %T", dstAddr)
-	}
-
-	var network string
-	var address string
-
-	if udpAddr.IP.To4() != nil {
-		network = "udp4"
-		address = d.out4
-	} else {
-		network = "udp6"
-		address = d.out6
-	}
-	if debug {
-		log.Printf("[delayed46UDPConn initialized]: %s, BindAddr: %s, Dest: %s\n", network, address, dstAddr)
-	}
-
-	c, err := net.ListenPacket(network, address)
+	c, err := d.connOpener(dstAddr)
 	if err != nil {
 		return err
 	}
@@ -78,7 +49,7 @@ func (d *delayed46UDPConn) initConn(dstAddr net.Addr) error {
 	return nil
 }
 
-func (d *delayed46UDPConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+func (d *delayedUDPConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	d.mu.RLock()
 	if d.conn != nil {
 		c := d.conn
@@ -99,18 +70,18 @@ func (d *delayed46UDPConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	return d.conn.WriteTo(p, addr)
 }
 
-// error before first WriteTo()
-func (d *delayed46UDPConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+func (d *delayedUDPConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
+	// error before first WriteTo()
 	if d.conn == nil {
 		return 0, nil, ErrNotInitialized
 	}
 	return d.conn.ReadFrom(p)
 }
 
-func (d *delayed46UDPConn) Close() error {
+func (d *delayedUDPConn) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -120,7 +91,7 @@ func (d *delayed46UDPConn) Close() error {
 	return d.conn.Close()
 }
 
-func (d *delayed46UDPConn) LocalAddr() net.Addr {
+func (d *delayedUDPConn) LocalAddr() net.Addr {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -133,7 +104,7 @@ func (d *delayed46UDPConn) LocalAddr() net.Addr {
 	return d.conn.LocalAddr()
 }
 
-func (d *delayed46UDPConn) SetDeadline(t time.Time) error {
+func (d *delayedUDPConn) SetDeadline(t time.Time) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.readDeadline = t
@@ -144,7 +115,7 @@ func (d *delayed46UDPConn) SetDeadline(t time.Time) error {
 	return nil
 }
 
-func (d *delayed46UDPConn) SetReadDeadline(t time.Time) error {
+func (d *delayedUDPConn) SetReadDeadline(t time.Time) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.readDeadline = t
@@ -154,7 +125,7 @@ func (d *delayed46UDPConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func (d *delayed46UDPConn) SetWriteDeadline(t time.Time) error {
+func (d *delayedUDPConn) SetWriteDeadline(t time.Time) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.writeDeadline = t

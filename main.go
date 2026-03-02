@@ -35,6 +35,7 @@ func main() {
 		fSocksRaw   stringList // forwardSOCKS
 		sSocksRaw   stringList // serveSOCKS
 		tSocksRaw   stringList // tailnetSOCKS
+		dSocksRaw   stringList // dualSOCKS
 	)
 
 	flag.StringVar(&hostname, "hostname", "ts-proxy", "Tailscale device hostname")
@@ -50,6 +51,7 @@ func main() {
 	flag.Var(&fSocksRaw, "fwd-socks", "Forward SOCKS: 'bind_addr=tailscale_addr'")
 	flag.Var(&sSocksRaw, "serve-socks", "Serve SOCKS: 'tailscale_addr[,outaddr_config...]'")
 	flag.Var(&tSocksRaw, "tailnet-socks", "Serve Tailnet SOCKS: 'bind_addr'")
+	flag.Var(&dSocksRaw, "dual-socks", "Combination of \"Tailnet SOCKS\" and \"Serve SOCKS\"")
 	flag.Parse()
 	if flag.NFlag() == 0 {
 		flag.Usage()
@@ -72,7 +74,7 @@ func main() {
 	}
 	defer tsServer.Close()
 
-	tsproxy.Setup(tsServer, tcpTimeout, udpTimeout, debug)
+	tsproxy := tsproxy.NewTsProxy(tsServer, tcpTimeout, udpTimeout, debug)
 
 	// --- TCP Forwarding ---
 	for _, raw := range tcpRulesRaw {
@@ -112,18 +114,10 @@ func main() {
 		go tsproxy.TailnetSOCKS(strings.TrimSpace(raw))
 	}
 
-	for _, raw := range sSocksRaw {
-		parts := strings.Split(raw, ",")
-		if len(parts) == 0 {
-			continue
-		}
-		parts0 := parts[0]
-		if parts0[:1] == ":" { //support shorthand notation
-			parts0 = hostname + ".tshost" + parts0
-		}
+	get_outaddr_config := func(c []string) (string, string, string, string) {
 		var tcp4, tcp6, udp4, udp6 string // empty string as default
 
-		for _, opt := range parts[1:] {
+		for _, opt := range c {
 			kv := strings.SplitN(opt, "=", 2)
 			if len(kv) != 2 {
 				log.Printf("Warning: Invalid option format in serve-socks: %s", opt)
@@ -150,7 +144,23 @@ func main() {
 				log.Printf("Warning: Unknown key in serve-socks: %s", key)
 			}
 		}
-		go tsproxy.ServeSOCKS(strings.TrimSpace(parts0), tcp4+":0", tcp6+":0", udp4+":0", udp6+":0")
+		return tcp4, tcp6, udp4, udp6
+	}
+	for _, raw := range dSocksRaw {
+		parts := strings.Split(raw, ",")
+		if len(parts) == 0 {
+			continue
+		}
+		tcp4, tcp6, udp4, udp6 := get_outaddr_config(parts[1:])
+		go tsproxy.DualSOCKS(strings.TrimSpace(raw), tcp4+":0", tcp6+":0", udp4+":0", udp6+":0")
+	}
+	for _, raw := range sSocksRaw {
+		parts := strings.Split(raw, ",")
+		if len(parts) == 0 {
+			continue
+		}
+		tcp4, tcp6, udp4, udp6 := get_outaddr_config(parts[1:])
+		go tsproxy.ServeSOCKS(strings.TrimSpace(parts[0]), tcp4+":0", tcp6+":0", udp4+":0", udp6+":0")
 	}
 
 	select {}
