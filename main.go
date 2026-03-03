@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ge9/ts-proxy/tsproxy"
@@ -49,7 +50,7 @@ func main() {
 	flag.Var(&tcpRulesRaw, "tcp", "TCP forward rule: 'bind_addr=connect_addr'")
 	flag.Var(&udpRulesRaw, "udp", "UDP forward rule: 'bind_addr=connect_addr'")
 	flag.Var(&fSocksRaw, "fwd-socks", "Forward SOCKS: 'bind_addr=tailscale_addr'")
-	flag.Var(&sSocksRaw, "serve-socks", "Serve SOCKS: 'tailscale_addr[,outaddr_config...]'")
+	flag.Var(&sSocksRaw, "serve-socks", "Serve SOCKS: 'bind_addr[,outaddr_config...]'")
 	flag.Var(&tSocksRaw, "tailnet-socks", "Serve Tailnet SOCKS: 'bind_addr'")
 	flag.Var(&dSocksRaw, "dual-socks", "Combination of \"Tailnet SOCKS\" and \"Serve SOCKS\"")
 	flag.Parse()
@@ -60,6 +61,12 @@ func main() {
 	tagsArray := strings.Split(tags, ",")
 	if tags == "" {
 		tagsArray = nil
+	}
+	if tsdir == "" {
+		confDir, err := os.UserConfigDir()
+		if err == nil {
+			tsdir = filepath.Join(confDir, "tsnet+tsproxy-"+hostname)
+		}
 	}
 	tsServer = &tsnet.Server{
 		AdvertiseTags: tagsArray,
