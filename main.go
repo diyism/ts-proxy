@@ -65,7 +65,7 @@ func main() {
 	if tsdir == "" {
 		confDir, err := os.UserConfigDir()
 		if err == nil {
-			tsdir = filepath.Join(confDir, "tsnet+tsproxy-"+hostname)
+			tsdir = filepath.Join(filepath.Join(confDir, "tsnet.tsproxy"), hostname)
 		}
 	}
 	tsServer = &tsnet.Server{

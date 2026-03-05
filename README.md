@@ -80,6 +80,9 @@ Due to https://github.com/golang/go/issues/40569, `net.Interface()` and `net.Int
 
 Additionally, a small patch is applied to enable TLS certificate requests, which are currently disabled in the Tailscale library. This can also be set up by go.work (this is useful when ts-proxy is used as library).
 
+## Can't connect to itself (#18829)
+The latest Tailscale release has a bug ( https://github.com/tailscale/tailscale/issues/18829 ), where tsnet can't connect to itself. It's already fixed but not released. This is fixed in ts-proxy binary release. See GitHub Actions configuration for detail.
+
 # TODO
 - HTTP Proxy support
 - SOCKS5 authentication
