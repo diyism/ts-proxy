@@ -69,8 +69,33 @@ In UDP, `delayedUDPConn` is always used and `disabled` is not allowed in `udp4` 
 ## Environment variables
 tsnet (which is used in ts-proxy) accepts some environment variables relating auth key, oauth client, etc. See tsnet documentation for detail.
 
-## Example
-`ts-proxy -hostname pc1 -serve-socks :1080,tcp4=10.0.0.1 -tcp pc1.tshost:1234=127.0.0.1:5678 -udp :1234=pc2.tshost:5678`
+# Example
+
+## SOCKS5 as Exit Node
+
+- on one device
+  ```
+  ts-proxy -hostname pc1 -serve-socks .tshost:1080,tcp4=10.2.0.2,tcp6=[2400::1111]
+  ```
+  Outgoing addresses are optional.
+- on another device
+  If Tailscale is running on the device, 100.xxx.yyy.zzz:1080 (according to the Tailscale IP of `pc1`) is SOCKS5 proxy port.
+  If not, ts-proxy can be used again to serve SOCKS5 proxy locally.
+  ```
+  ts-proxy -hostname pc2 -fwd-socks localhost:1080=pc1.tshost:1080
+  ```
+
+## Serve HTTP as HTTPS
+```
+ts-proxy -hostname pc1 -tcp .tshost:443=TLS=localhost:8080 -tailnet-socks localhost:1080
+```
+If Tailscale is running on the device, https://pc1.tailXXXXX.ts.net is directly accessible in the browser.
+If not, `localhost:1080` should be set as SOCKS5 proxy for the browser (possibly with per-domain switching extensions/addons).
+Another possible setup is serving on localhost and editing `/etc/hosts`.
+```
+ts-proxy -hostname pc1 -tcp localhost:8443=TLS=localhost:8080
+```
+The first access will take some time waiting for TLS certificate issued by Let's Encrypt.
 
 # How it works
 tsnet handles all Tailscale connectivity. https://github.com/txthinking/socks5 with minor customizations is used for the SOCKS5 server/client.
