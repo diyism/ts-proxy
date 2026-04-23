@@ -1,3 +1,4 @@
+    //to forward http3 udp:
     TS_DEBUG_MTU=1400 ./ts-proxy  -udp <relay ts ip>:8443=<target ts ip>:8443
 
 
